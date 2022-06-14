@@ -47,7 +47,7 @@ def fit_and_scale(scaler, train, validate, test):
     scaled_validate = pd.DataFrame(data=scaler.transform(validate[floats]), columns=floats)
     scaled_test = pd.DataFrame(data=scaler.transform(test[floats]), columns=floats)
 
-    return scaled_train, scaled_validate, scaled_test
+    return scaled_train, scaled_validate, scaled_test, scaler
 
 def prep_iris(iris_df):
     iris_data = iris_df

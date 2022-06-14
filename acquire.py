@@ -1,3 +1,4 @@
+from isort import file
 import pandas as pd
 import numpy as np
 import os
@@ -97,11 +98,33 @@ dataframe, then write the dataframe to a .csv
 file with the appropriate name.
 """
 
+def get_mall_customer_data():
+    filename = 'mall_customer.csv'
+
+    if os.path.isfile(filename):
+        return pd.read_csv(filename)
+
+    else:
+        sql = """
+        SELECT *
+        FROM customers;
+        """
+
+        df = pd.read_sql(sql, get_db_url('mall_customers'))
+
+        # Write that dataframe to disk for later. Called "caching" the data for later.
+        df.to_csv(filename)
+
+        # Return the dataframe to the calling code
+        return df
+
+
 def get_zillow_data():
     filename = 'zillow.csv'
     
     if os.path.isfile(filename):
         print('brotherrrrr')
+        
         return pd.read_csv(filename)
     else:
         print('why though')

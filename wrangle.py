@@ -114,9 +114,9 @@ def wrangle_zillow():
     print('bye bye')
 
     # clean zillow data
-    zillow, categorical, quant_cols = clean_zillow(zillow)
+    #zillow, categorical, quant_cols = clean_zillow(zillow)
 
-    return zillow, categorical, quant_cols
+    return zillow#, categorical, quant_cols
 
 "train, test, validate"
 def xy_tvt_data(train, validate, test, target_var):
