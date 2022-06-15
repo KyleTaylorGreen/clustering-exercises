@@ -1,5 +1,8 @@
 from dis import dis
 from math import dist
+from xml import dom
+
+from sympy import re
 import acquire
 import pandas as pd
 import prepare
@@ -7,25 +10,59 @@ import sklearn
 import split
 from geopy import distance
 
-def clean_zillow(df):
-    # drop nulls and extra column
-    #df = df.dropna()
-    print('whoops')
-
+def drop_zillows_cols_and_na(df):
     if 'Unnamed: 0' in df.columns:
         df = df.drop(columns='Unnamed: 0')
+    
+    cols_to_drop = ['assessmentyear', 'roomcnt', 'id', 'calculatedbathnbr', 'finishedsquarefeet12', 'propertycountylandusecode',
+                'id.1', 'propertylandusetypeid', 'regionidzip', 'propertylandusedesc', 'regionidcity', 'regionidcounty']
+
+    df = df.drop(columns=cols_to_drop)
+    df = df.dropna()
+
+    return df
 
 
-    df.yearbuilt = df.yearbuilt.fillna(0)
-
+def rename_zillow(df):
     # readability
     df = df.rename(columns={'calculatedfinishedsquarefeet': 'sqr_ft'})
+    return df
 
-    # convert yearbuilt/fips to ints
-    cols = ['yearbuilt', 'fips']
-    df[cols] = df[cols].astype('int64')
+def threshold(df, index_col, prop_required):
+    threshold = eval(f'int(round(prop_required*len(df.{index_col}),0))')
+    #print(threshold)
     
+    return threshold
 
+def iqr_outlier(df):
+    outliers = {}
+    for col in df.columns:
+        if df[col].dtype == 'float64':
+            quartiles = pd.DataFrame(df[col].quantile([0.25,0.5,0.75]))
+            #print(quartiles.iloc[0, 0])
+            iqr = quartiles.iloc[2, 0] - quartiles.iloc[0, 0]
+            upper_outlier_val = (iqr * 1.5) + quartiles.iloc[2,0]
+            lower_outlier_val = quartiles.iloc[0,0] - (iqr * 1.5)
+
+            outliers[col] = df[col][(df[col] < lower_outlier_val) & (df[col] > upper_outlier_val)]
+    
+    return outliers
+
+def handle_missing_values(df, prop_required_column = .7, prop_required_row = .5):
+    # create thresholds
+    thresh = threshold(df, 'index', prop_required_column)
+    
+    # drop cols that don't meet prop requirement
+    df.dropna(axis=1, thresh=thresh, inplace=True)
+    
+    thresh = threshold(df, 'columns', prop_required_row)
+    # drop rows that don't meet prop requirement
+    df.dropna(axis=0, thresh=thresh, inplace=True)
+    
+    # return changed dataframe with data that meets requirements
+    return df
+
+def domain_assumptions(df):
     # limit houses to include only >= 70 sqr ft 
     # (most prevelant minimum required sqr ft by state)
     df = df[df.sqr_ft >= 70]
@@ -33,42 +70,53 @@ def clean_zillow(df):
     # exclude houses with bthroom/bedroomcnts of 0
     df = df[df.bedroomcnt != 0]
     df = df[df.bathroomcnt != 0.0]
-
-    # remove all rows where any column has z score gtr than 3
-    non_quants = ['fips', 'parcelid', 'latitude', 'longitude',
-    'propertycountylandusecode', 'rawcensustractandblock',
-    'regionidcity', 'regionidcounty', 'censustractandblock',
-    'transactiondate', 'logerror']
-    print('before dropping')
-    quants = df.drop(columns=non_quants).columns
-    
-    
-    # remove numeric values with > 3.5 std dev
-    'before outliers'
-    df = prepare.remove_outliers(3.5, quants, df)
-
-    # see if sqr feet makes sense
     df = clean_sqr_feet(df)
 
-    # fips to categorical data
-    df.fips = df.fips.astype('object')
+    return df
 
-    categorical = ['county']
-
-    df.yearbuilt = df.yearbuilt.astype('float64')
-
-    # make sure 'fips' is object type
-    df = map_counties(df)
-
-    # adjust latitude/longitude values
-    df = df.drop(columns='taxamount')
-
-
-    #g = df.groupby('parcelid')
-    #df = g.agg(lambda x: x.iloc[x.transactiondate.argmax()])
-
+def convert_zillow_dtypes(df):
     
-    return df, categorical, quants
+    non_quant_ints = ['parcelid', 'latitude', 'longitude', 'censustractandblock',
+                      'rawcensustractandblock']
+
+    floats = []
+    non_numeric = ['transactiondate', 'county']
+    for col in df.columns:
+        if col in non_quant_ints:
+            df[col] = df[col].astype('int64')
+        if col in non_numeric:
+            df[col] = df[col].astype('object')
+            if col == 'transactiondate':
+                df[col] = pd.to_datetime(df[col])
+        if col not in non_quant_ints and col not in non_numeric:
+            df[col] = df[col].astype('float64')
+            floats.append(col)
+
+    return df, floats
+
+def drop_duplicates(df):
+    return df.sort_values('transactiondate').drop_duplicates('parcelid',keep='last')
+
+def rename_cols(df):
+    df = df.rename(columns={'calculatedfinishedsquarefeet': 'sqr_ft'})
+    return df
+
+def clean_zillow(df):
+    # drop nulls and extra column
+    #df = df.dropna()
+    df = handle_missing_values(df)
+    df = drop_zillows_cols_and_na(df)
+    df = rename_cols(df)
+    df = domain_assumptions(df)
+    df = map_counties(df)
+    df, quants = convert_zillow_dtypes(df)
+    df = drop_duplicates(df)
+    
+    #remove numeric values with > 3.5 std dev
+    df = prepare.remove_outliers(3.5, quants, df)
+    cats = ['county']
+
+    return df, quants, cats
 
 def minimum_sqr_ft(df):
     #print(df)
@@ -92,6 +140,8 @@ def clean_sqr_feet(df):
 
 def map_counties(df):
 
+    df.fips = df.fips.astype('object')
+
     # identified counties for fips codes 
     counties = {6037: 'los_angeles',
                 6059: 'orange_county',
@@ -109,17 +159,18 @@ def wrangle_zillow():
     """ acquire and clean zillow data, returns zillow df, categorical data,
     and quantitative column names"""
     # aquire zillow data from mysql or csv
-    print('hello??')
     zillow = acquire.get_zillow_data()
-    print('bye bye')
 
     # clean zillow data
-    #zillow, categorical, quant_cols = clean_zillow(zillow)
+    zillow, quants, cats = clean_zillow(zillow)
 
-    return zillow#, categorical, quant_cols
+
+    return zillow, quants, cats
 
 "train, test, validate"
 def xy_tvt_data(train, validate, test, target_var):
+    #for col in train.columns:
+    #    if tr
     cols_to_drop = ['latitude', 'longitude', 
                     'parcelid', 'Unnamed: 0']
 
@@ -152,11 +203,18 @@ def drop_cols(cols_to_drop, tvt_set, target_var):
 def encode_object_columns(train_df, drop_encoded=True):
     
     col_to_encode = object_columns_to_encode(train_df)
-    dummy_df = pd.get_dummies(train_df[col_to_encode],
+    #print(train_df.county)
+    #print(col_to_encode)
+
+    dummy_df = pd.get_dummies(train_df,
+                              columns=col_to_encode,
                               dummy_na=False,
-                              drop_first=[True for col in col_to_encode])
+                              drop_first=True)
+                            
+    #print(dummy_df.head())
     train_df = pd.concat([train_df, dummy_df], axis=1)
     
+    #print(train_df)
     if drop_encoded:
         train_df = drop_encoded_columns(train_df, col_to_encode)
 
@@ -179,7 +237,7 @@ def encoded_xy_data(train, validate, test, target_var):
     xy_train_validate_test = list(xy_tvt_data(train, validate, 
                                               test, target_var))
     
-
+    print(xy_train_validate_test[0])
     for i in range(0, len(xy_train_validate_test), 2):
         
         xy_train_validate_test[i] = encode_object_columns(xy_train_validate_test[i])
@@ -193,14 +251,14 @@ def fit_and_scale(scaler, sets_to_scale):
     scaled_data = []
    # print(sets_to_scale[0].columns)
    # print(sets_to_scale[0][sets_to_scale[0].select_dtypes(include=['float64', 'uint8']).columns])
-    scaler.fit(sets_to_scale[0][sets_to_scale[0].select_dtypes(include=['float64', 'uint8']).columns])
-    print()
+    scaler.fit(sets_to_scale[0][sets_to_scale[0].select_dtypes(include=['float64']).columns])
+    print(sets_to_scale[0])
 
     for i in range(0, len(sets_to_scale), 1):
         #print(sets_to_scale[i].info())
         if i % 2 == 0:
             # only scales float columns
-            floats = sets_to_scale[i].select_dtypes(include=['float64', 'uint8']).columns
+            floats = sets_to_scale[i].select_dtypes(include=['float64']).columns
 
             # fits scaler to training data only, then transforms 
             # train, validate & test
@@ -214,7 +272,8 @@ def fit_and_scale(scaler, sets_to_scale):
 def encoded_and_scaled(train, validate, test, target_var):
     sets_to_scale = encoded_xy_data(train, validate, test, target_var)
 
-    scaler = sklearn.preprocessing.RobustScaler()
+    #print(sets_to_scale)
+    scaler = sklearn.preprocessing.MinMaxScaler()
     scaled_data = fit_and_scale(scaler, sets_to_scale)
 
     return scaled_data
@@ -223,13 +282,11 @@ def rename_and_add_scaled_data(train, validate, test,
                                x_train_scaled, 
                                x_validate_scaled,
                                x_test_scaled):
+    columns = {}
 
-    columns = {'bedroomcnt': 'scaled_bedroomcnt',
-                       'bathroomcnt': 'scaled_bathroomcnt',
-                       'sqr_ft': 'scaled_sqr_ft',
-                       'yearbuilt': 'scaled_yearbuilt',
-                       'county_orange_county': 'scaled_OC',
-                       'county_ventura' : 'scaled_ventura'}
+    for col in train.columns:
+        if train[col].dtype == 'float64':
+            columns[col] = f'scaled_{col}'
 
     x_train_scaled = x_train_scaled.rename(columns=columns)
     x_validate_scaled = x_validate_scaled.rename(columns=columns)

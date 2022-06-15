@@ -5,25 +5,9 @@ import numpy as np
 from scipy import stats
 import matplotlib.pyplot as plt
 
-def threshold(df, index_col, prop_required):
-    threshold = eval(f'int(round(prop_required*len(df.{index_col}),0))')
-    #print(threshold)
-    
-    return threshold
 
-def handle_missing_values(df, prop_required_column = .7, prop_required_row = .5):
-    # create thresholds
-    thresh = threshold(df, 'index', prop_required_column)
-    
-    # drop cols that don't meet prop requirement
-    df.dropna(axis=1, thresh=thresh, inplace=True)
-    
-    thresh = threshold(df, 'columns', prop_required_row)
-    # drop rows that don't meet prop requirement
-    df.dropna(axis=0, thresh=thresh, inplace=True)
-    
-    # return changed dataframe with data that meets requirements
-    return df
+
+
     
 
 def visualize_scaled_data(train, scaled_train):

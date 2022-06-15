@@ -84,12 +84,12 @@ def y_mean_median_base_pred(y_train, y_validate, target_var):
 def base_RMSE(y_train, y_validate):
     
     # rmse of baseline mean
-    rmse_train_mean_bl = mean_squared_error(y_train.taxvaluedollarcnt, y_train.TVDC_pred_mean)**(1/2)
-    rmse_val_mean_bl = mean_squared_error(y_validate.taxvaluedollarcnt, y_validate.TVDC_pred_mean)**(1/2)
+    rmse_train_mean_bl = mean_squared_error(y_train.logerror, y_train.TVDC_pred_mean)**(1/2)
+    rmse_val_mean_bl = mean_squared_error(y_validate.logerror, y_validate.TVDC_pred_mean)**(1/2)
 
     # rmse of baseline median
-    rmse_train_med_bl = mean_squared_error(y_train.taxvaluedollarcnt, y_train.TVDC_pred_median)**(1/2)
-    rmse_val_med_bl = mean_squared_error(y_validate.taxvaluedollarcnt, y_validate.TVDC_pred_median)**(1/2)
+    rmse_train_med_bl = mean_squared_error(y_train.logerror, y_train.TVDC_pred_median)**(1/2)
+    rmse_val_med_bl = mean_squared_error(y_validate.logerror, y_validate.TVDC_pred_median)**(1/2)
 
     return rmse_train_mean_bl, rmse_val_mean_bl,\
            rmse_train_med_bl, rmse_val_med_bl
@@ -156,8 +156,8 @@ class LRM:
         self.rmse_train_med_bl,\
         self.rmse_val_med_bl = base_RMSE(self.y_train, self.y_validate)
 
-        self.normalized_rmse_train = round(self.rmse_train_mean_bl/self.train.taxvaluedollarcnt.mean(), 2)
-        self.normalized_rmse_val = round(self.rmse_val_mean_bl/self.validate.taxvaluedollarcnt.mean(), 2)
+        self.normalized_rmse_train = round(self.rmse_train_mean_bl/self.train.logerror.mean(), 2)
+        self.normalized_rmse_val = round(self.rmse_val_mean_bl/self.validate.logerror.mean(), 2)
 
     def OLS_regression(self, use_rfe_features=False):
         """Fits an Ordinary Least Squares Regression to the data set
@@ -183,19 +183,19 @@ class LRM:
 
         # fit the model to our training data. We must specify the column in self.y_train, 
         # since we have converted it to a dataframe from a series! 
-        lm.fit(x_train, self.y_train.taxvaluedollarcnt)
+        lm.fit(x_train, self.y_train.logerror)
 
         # predict train
         self.y_train['TVDC_pred_OLS'] = lm.predict(x_train)
 
         # evaluate: rmse
-        rmse_train = mean_squared_error(self.y_train.taxvaluedollarcnt, self.y_train.TVDC_pred_OLS)**(1/2)
+        rmse_train = mean_squared_error(self.y_train.logerror, self.y_train.TVDC_pred_OLS)**(1/2)
 
         # predict validate
         self.y_validate['TVDC_pred_OLS'] = lm.predict(x_validate)
 
         # evaluate: rmse
-        rmse_validate = mean_squared_error(self.y_validate.taxvaluedollarcnt, self.y_validate.TVDC_pred_OLS)**(1/2)
+        rmse_validate = mean_squared_error(self.y_validate.logerror, self.y_validate.TVDC_pred_OLS)**(1/2)
 
         model_stats = self.make_model_stats(model_name, rmse_train, rmse_validate,
                               x_train)
@@ -204,7 +204,7 @@ class LRM:
         return model_stats
 
     def loop_OLS_regression(self):
-        list_of_kbest = k_best(self.x_train_scaled, self.y_train.taxvaluedollarcnt)
+        list_of_kbest = k_best(self.x_train_scaled, self.y_train.logerror)
         #print(list_of_kbest)
         for kbest in list_of_kbest:
             #print(kbest)
@@ -243,19 +243,19 @@ class LRM:
 
         # fit the model to our training data. We must specify the column in self.y_train, 
         # since we have converted it to a dataframe from a series! 
-        lm.fit(x_train, self.y_train.taxvaluedollarcnt)
+        lm.fit(x_train, self.y_train.logerror)
 
         # predict train
         self.y_train['TVDC_pred_poly'] = lm.predict(x_train)
 
         # evaluate: rmse
-        rmse_train = mean_squared_error(self.y_train.taxvaluedollarcnt, self.y_train.TVDC_pred_poly)**(1/2)
+        rmse_train = mean_squared_error(self.y_train.logerror, self.y_train.TVDC_pred_poly)**(1/2)
 
         # predict validate
         self.y_validate['TVDC_pred_poly'] = lm.predict(x_validate)
 
         # evaluate: rmse
-        rmse_validate = mean_squared_error(self.y_validate.taxvaluedollarcnt, self.y_validate.TVDC_pred_poly)**(1/2)
+        rmse_validate = mean_squared_error(self.y_validate.logerror, self.y_validate.TVDC_pred_poly)**(1/2)
 
         model_stats = self.make_model_stats(model_name, rmse_train, rmse_validate,
                               x_train)
@@ -302,19 +302,19 @@ class LRM:
 
         # fit the model to our training data. We must specify the column in y_train, 
         # since we have converted it to a dataframe from a series! 
-        lars.fit(x_train, self.y_train.taxvaluedollarcnt)
+        lars.fit(x_train, self.y_train.logerror)
 
         # predict train
         self.y_train['TVDC_pred_lars'] = lars.predict(x_train)
 
         # evaluate: rmse
-        rmse_train = mean_squared_error(self.y_train.taxvaluedollarcnt, self.y_train.TVDC_pred_lars)**(1/2)
+        rmse_train = mean_squared_error(self.y_train.logerror, self.y_train.TVDC_pred_lars)**(1/2)
 
         # predict validate
         self.y_validate['TVDC_pred_lars'] = lars.predict(x_validate)
 
         # evaluate: rmse
-        rmse_validate = mean_squared_error(self.y_validate.taxvaluedollarcnt, self.y_validate.TVDC_pred_lars)**(1/2)
+        rmse_validate = mean_squared_error(self.y_validate.logerror, self.y_validate.TVDC_pred_lars)**(1/2)
 
         model_stats = self.make_model_stats(model_name, rmse_train, rmse_validate,
                               x_train, alpha=alpha)
@@ -342,19 +342,19 @@ class LRM:
 
         # fit the model to our training data. We must specify the column in y_train, 
         # since we have converted it to a dataframe from a series! 
-        glm.fit(x_train, self.y_train.taxvaluedollarcnt)
+        glm.fit(x_train, self.y_train.logerror)
 
         # predict train
         self.y_train['TVDC_pred_glm'] = glm.predict(x_train)
 
         # evaluate: rmse
-        rmse_train = mean_squared_error(self.y_train.taxvaluedollarcnt, self.y_train.TVDC_pred_glm)**(1/2)
+        rmse_train = mean_squared_error(self.y_train.logerror, self.y_train.TVDC_pred_glm)**(1/2)
 
         # predict validate
         self.y_validate['TVDC_pred_glm'] = glm.predict(x_validate)
 
         # evaluate: rmse
-        rmse_validate = mean_squared_error(self.y_validate.taxvaluedollarcnt, self.y_validate.TVDC_pred_glm)**(1/2)
+        rmse_validate = mean_squared_error(self.y_validate.logerror, self.y_validate.TVDC_pred_glm)**(1/2)
 
         model_stats = self.make_model_stats(model_name, rmse_train, rmse_validate,
                               x_train, alpha=alpha, power=power)
@@ -402,8 +402,8 @@ class LRM:
         return model_stats
 
     def baseline_diff(self, model_stats):
-        model_stats['norm_rmse_train'] = round((model_stats['rmse_train']) / self.train.taxvaluedollarcnt.mean(), 4)
-        model_stats['norm_rmse_validate'] = round((model_stats['rmse_validate']) / self.validate.taxvaluedollarcnt.mean(), 4)
+        model_stats['norm_rmse_train'] = round((model_stats['rmse_train']) / self.train.logerror.mean(), 4)
+        model_stats['norm_rmse_validate'] = round((model_stats['rmse_validate']) / self.validate.logerror.mean(), 4)
         
         return model_stats
 

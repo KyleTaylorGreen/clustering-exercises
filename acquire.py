@@ -123,18 +123,21 @@ def get_zillow_data():
     filename = 'zillow.csv'
     
     if os.path.isfile(filename):
-        print('brotherrrrr')
-        
         return pd.read_csv(filename)
     else:
-        print('why though')
         sql = """
         SELECT *
         FROM properties_2017
-        JOIN propertylandusetype USING (propertylandusetypeid)
+        LEFT JOIN propertylandusetype USING (propertylandusetypeid)
+        LEFT JOIN airconditioningtype USING (airconditioningtypeid)
+        LEFT JOIN architecturalstyletype USING (architecturalstyletypeid)
+        LEFT JOIN buildingclasstype USING (buildingclasstypeid)
+        LEFT JOIN heatingorsystemtype USING (heatingorsystemtypeid)
+        LEFT JOIN storytype USING(storytypeid)
+        LEFT JOIN typeconstructiontype USING (typeconstructiontypeid)
         JOIN predictions_2017 USING (parcelid)
-        WHERE propertylandusedesc = 'Single Family Residential'
-        OR propertylandusedesc = 'Inferred Single Family Residential';
+        WHERE propertylandusedesc = 'Single Family Residential';
+
         """
         df = pd.read_sql(sql, get_db_url('zillow'))
 
