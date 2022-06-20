@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import os
+
+from sklearn.preprocessing import MinMaxScaler
 import acquire
 import prepare
 import split
@@ -371,6 +373,8 @@ def create_grids(border_dict, resolution, df, sample=10_000):
     lat_coords = []
     lon_coords = []
     sqr_ft = []
+    elevation  = []
+    lotsizesqrft = []
     added = 0
     
     if sample:
@@ -385,6 +389,8 @@ def create_grids(border_dict, resolution, df, sample=10_000):
         lat_coords.append(np.zeros((resolution,resolution)))
         lon_coords.append(np.zeros((resolution,resolution)))
         sqr_ft.append(np.zeros((resolution,resolution)))
+        elevation.append(np.zeros((resolution, resolution)))
+        lotsizesqrft.append(np.zeros((resolution, resolution)))
         
         county_subset = zillow[zillow.county == county]
         print(county)
@@ -402,6 +408,8 @@ def create_grids(border_dict, resolution, df, sample=10_000):
                             sqr_ft[i][b1,b2] += county_subset.sqr_ft.values[a]
                             lat_coords[i][b1, b2] = border_dict[f'{county}_lat'][b1]
                             lon_coords[i][b1, b2] = border_dict[f'{county}_lon'][b2]
+                            elevation[i][b1, b2] += county_subset.elevation.values[a]
+                            lotsizesqrft[i][b1,b2] += county_subset.lotsizesquarefeet.values[a]
                             break
                     break
                             
@@ -410,18 +418,19 @@ def create_grids(border_dict, resolution, df, sample=10_000):
                 print(added)
         #print(grids[i])
     
-    return grids, prices, lat_coords, lon_coords, sqr_ft, resolution
+    return grids, prices, lat_coords, lon_coords, sqr_ft, resolution, elevation, lotsizesqrft
 
 
 def create_map_data(df, resolution, sample=10_000):
     border_dict = county_borders(df, resolution)
-    grids, prices, lat_coords, lon_coords, sqr_ft, resolution = create_grids(border_dict, resolution, 
+    grids, prices, lat_coords, lon_coords, sqr_ft, resolution, elevation, lotsizesqrft = create_grids(border_dict, resolution, 
                                                                                  df, sample=sample)
     
-    return prices, grids, lat_coords, lon_coords, sqr_ft, resolution
+    return prices, grids, lat_coords, lon_coords, sqr_ft, resolution, elevation, lotsizesqrft
   
 
-def create_display_heatmap(prices, grids, lat_coords, lon_coords, sqr_ft, resolution, 
+def create_display_heatmap(prices, grids, lat_coords, lon_coords, sqr_ft, resolution, elevation,
+                           lotsizesqrft,
                            counties=['la'], option='average_price'):
     
     county_dfs = []
@@ -441,16 +450,22 @@ def create_display_heatmap(prices, grids, lat_coords, lon_coords, sqr_ft, resolu
         county_prices = prices[i].reshape((resolution**2,))
         county_grid = grids[i].reshape((resolution**2,))
         county_sqr_ft = sqr_ft[i].reshape((resolution**2,))
+        county_elevation = elevation[i].reshape((resolution**2,))
+        county_lotsizesqrft = lotsizesqrft[i].reshape((resolution**2,))
+
 
         heatmap_prices = {'county_prices': county_prices, 'latitude': county_latitude_values, 
                           'longitude': county_longitude_values, 'num_houses': county_grid,
-                          'sqr_ft': county_sqr_ft}
+                          'sqr_ft': county_sqr_ft, 'elevation': county_elevation,
+                          'lotsizesqrft': county_lotsizesqrft}
 
         county_df =pd.DataFrame(heatmap_prices)
-        county_df = county_df[county_df.num_houses > 0]
+        county_df = county_df[county_df.num_houses > 2]
 
+        county_df['avg_elevation'] = county_df.elevation / county_df.num_houses
         county_df['avg_prices'] = county_df.county_prices / county_df.num_houses
         county_df['price_per_sqr_ft'] = county_df.county_prices / county_df.sqr_ft
+        county_df['avg_lotsizesqrft'] = county_df.lotsizesqrft / county_df.num_houses
         print(county_df.price_per_sqr_ft.max())
         
         county_dfs.append(county_df)
@@ -525,3 +540,49 @@ def basic_feature_plots(df):
                     line_kws={'color': 'orange'}, ax=axes[1,0])
     p5 = sns.regplot(data=df,x='yearbuilt',y='taxvaluedollarcnt', fit_reg=True,
                     line_kws={'color': 'orange'}, ax=axes[1,1])
+
+def graph_list_of_clusters(clusters, different_plots=False):
+
+
+    colors = ['b', 'g', 'r', 'y', 'purple', 'orange']
+    clusters = clusters
+
+    if different_plots:
+        diff_plots(clusters, colors)
+    else:
+        plot_all(clusters, colors)
+
+
+def plot_all(clusters, colors):
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    for i, cluster in enumerate(clusters):
+        x, y, z = cluster.latitude, cluster.longitude, cluster.elevation
+        ax.scatter(x,y, marker='s',c=colors[i], s=20, alpha=.6)
+    plt.show()
+
+def diff_plots(clusters, colors):
+
+    for i, cluster in enumerate(clusters):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        x, y, z = cluster.latitude, cluster.longitude, cluster.elevation
+        ax.scatter(x,y, marker='s',c=colors[i], s=20, alpha=.6)
+        plt.show()
+
+def return_inverse_scaled_mean(scaler1, target, train, df):
+    target_index = target_col_index(target, train)
+    scaler2 = MinMaxScaler()
+    scaler2.min_, scaler2.scale_ = scaler1.min_[target_index], scaler1.scale_[target_index]
+
+    return scaler2.inverse_transform(df[target].values.reshape(-1,1))
+
+
+def target_col_index(target, train):
+    for i, col in enumerate(train.columns):
+        if col == target:
+            return i
+
+    

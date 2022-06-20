@@ -1,4 +1,8 @@
 from appscript import k
+from cv2 import KMEANS_PP_CENTERS
+from sklearn.cluster import KMeans
+
+
 from sklearn.linear_model import LinearRegression
 from sklearn.feature_selection import RFE
 import wrangle
@@ -412,3 +416,63 @@ def make_map(train):
         location = [train['latitude'].mean(), train['longitude'].mean()],
         zoom_start = 6)
     return m
+
+
+def make_clusters(df, n_clusters, title, col_list=False, total_df=False):
+    """ 
+    Input a df and return a list of dataframes separated by cluster. 
+    If total_df == True: return one whole df with all clusters.
+
+    df = input dataframe, clusters will be made on features passed through
+    OR the entire df if no columns passed through.
+    
+    n_clusters = number of clusters to use in KMeans
+
+    col_list = list of columns to include as features for the cluster
+    to evaluate.
+
+    total_df = False by default, returns entire df with cluster group column
+    added if True. If false, returns list of dfs subset of each cluster group.
+    """
+    coords = ['latitude', 'longitude', 'elevation']
+
+    if col_list:
+        X = df[col_list]
+        final_df = pd.concat([df[col_list], df[coords]],axis=1)
+    else:
+        X = df
+
+    # create KMeans object with n clusters    
+    kmeans = KMeans(n_clusters=n_clusters)
+    
+    # fit kmeans clusters and then predict on features
+    kmeans.fit(X)
+    X[f'{title}_cluster_groups'] = kmeans.predict(X)
+    final_df = pd.concat([final_df, X[f'{title}_cluster_groups']], axis=1)
+
+    # returns entire df or makes list of dfs separated by cluster group
+    if total_df:
+        return final_df
+    else:
+        return separated_cluster_dfs(final_df, title)
+
+
+def separated_cluster_dfs(cluster_df, title):
+    """ 
+    Takes a df with cluster groups and then returns a list of dfs 
+    separated by cluster.
+
+    cluster_df = the dataframe to be split by cluster group
+
+    returns list of dfs separated by cluster.
+    """
+    list_of_dfs_by_cluster = []
+
+    # for each cluster number, append the df indexed by each cluster 
+    # to a list to be returned
+    for cluster in cluster_df.cluster_groups.unique():
+        list_of_dfs_by_cluster.append(cluster_df[cluster_df[f'{title}cluster_groups'] == cluster])
+    
+    return list_of_dfs_by_cluster
+
+

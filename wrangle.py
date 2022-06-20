@@ -1,6 +1,18 @@
 from dis import dis
 from math import dist
 from xml import dom
+from regex import D
+import urllib3
+import urllib
+import requests
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+import seaborn as sns
+
+from sklearn.preprocessing import MinMaxScaler
+
+
 
 from sympy import re
 import acquire
@@ -117,6 +129,78 @@ def clean_zillow(df):
     cats = ['county']
 
     return df, quants, cats
+
+def make_remote_request(url: str, params: dict):
+   """
+   Makes the remote request
+   Continues making attempts until it succeeds
+   """
+
+   count = 1
+   while True:
+       try:
+           response = requests.get((url + urllib.parse.urlencode(params)))
+       except (OSError, urllib3.exceptions.ProtocolError) as error:
+           print('\n')
+           print('*' * 20, 'Error Occured', '*' * 20)
+           print(f'Number of tries: {count}')
+           print(f'URL: {url}')
+           print(error)
+           print('\n')
+           count += 1
+           continue
+       break
+
+   return response
+
+def elevation(x):
+   #url = 'https://api.opentopodata.org/v1/eudem25m?'
+   url = 'https://api.open-elevation.com/api/v1/lookup?'
+   params = {'locations': f"{x}"}
+   result = make_remote_request(url, params)
+   #if result.json()['status'] != 'INVALID_REQUEST':
+   return result.json()['results']
+
+def frames_of_100(df):
+    list_of_indices = []
+
+    rows = df.shape[0]
+    full_frames = rows // 100
+    remainder = rows - (full_frames * 100)
+
+    for n in range(100, full_frames*100, 100):
+        list_of_indices.append([n-100, n])
+
+    list_of_indices.append([full_frames*100,df.shape[0]-1])
+
+    return list_of_indices
+
+def coord_request_strings(df):
+    lat_lon = frames_of_100(df)
+
+    list_of_strings = []
+
+    len_of_slices = len(lat_lon)
+    df['lat_lon_string'] = df.apply(lambda x: f'{x.latitude},{x.longitude}', axis=1)
+
+    for n in range(len_of_slices):
+        list_of_strings.append(np.array(df.iloc[lat_lon[n][0]:lat_lon[n][1], 2]))
+        list_of_strings[n] = "|".join(list_of_strings[n])
+
+    return list_of_strings
+
+def request_elevation(df):
+    list_of_coords = coord_request_strings(df)
+
+    list_of_results = []
+    for i, coord in enumerate(list_of_coords):
+        # len of coord_list is 497
+        if i % 25 == 0:
+            print(i)
+        list_of_results.append(elevation(coord))
+
+    return list_of_results
+
 
 def minimum_sqr_ft(df):
     #print(df)
@@ -237,7 +321,7 @@ def encoded_xy_data(train, validate, test, target_var):
     xy_train_validate_test = list(xy_tvt_data(train, validate, 
                                               test, target_var))
     
-    print(xy_train_validate_test[0])
+    #print(xy_train_validate_test[0])
     for i in range(0, len(xy_train_validate_test), 2):
         
         xy_train_validate_test[i] = encode_object_columns(xy_train_validate_test[i])
@@ -252,7 +336,7 @@ def fit_and_scale(scaler, sets_to_scale):
    # print(sets_to_scale[0].columns)
    # print(sets_to_scale[0][sets_to_scale[0].select_dtypes(include=['float64', 'uint8']).columns])
     scaler.fit(sets_to_scale[0][sets_to_scale[0].select_dtypes(include=['float64']).columns])
-    print(sets_to_scale[0])
+    #print(sets_to_scale[0])
 
     for i in range(0, len(sets_to_scale), 1):
         #print(sets_to_scale[i].info())
@@ -355,7 +439,7 @@ def dist_simi_valley(latitude, longitude):
     simi = [34.2694, -118.7815]
     return distance.geodesic(simi, [latitude, longitude]).km
 
-def add_dist_cols(df, county):
+def add_dist_cols(df, county='all'):
     la_dist = ['dist_from_la', 'dist_from_long_beach',
                  'dist_santa_monica', 'dist_from_malibu',
                  'dist_from_bel_air']
@@ -415,4 +499,168 @@ def all_train_validate_test_data(df, target_var, county):
            x_train_scaled, y_train, \
            x_validate_scaled, y_validate, \
            x_test_scaled, y_test
+
+def load_wrangle_zillow_with_elevation():
+    # read the saved csv w elevation data
+    df = pd.read_csv('zillow_with_elevation.csv').drop(columns='Unnamed: 0')
+
+    # convert transactiondate to datetime datatype
+    df.transactiondate = pd.to_datetime(df.transactiondate)
+    
+    df['days_since_2016'] = (pd.to_datetime("2016/01/01") - df.transactiondate) / np.timedelta64(1, 'D')
+
+    #
+    dummies = pd.get_dummies(df, columns=['county'], drop_first = True)
+    dummies['county']= df.county
+
+
+    train, validate, test = split.train_validate_test_split(dummies, 'logerror')
+
+    train['pp_sqr_ft'] = train.taxvaluedollarcnt / train.sqr_ft[train.sqr_ft > 0]
+    validate['pp_sqr_ft'] = validate.taxvaluedollarcnt/ validate.sqr_ft[validate.sqr_ft > 0]
+    test['pp_sqr_ft'] = test.taxvaluedollarcnt / test.sqr_ft[test.sqr_ft > 0]
+
+    train = add_dist_cols(train)
+    validate = add_dist_cols(validate)
+    test = add_dist_cols(test)
+
+    train = train.drop(columns=['rawcensustractandblock', 'censustractandblock'])
+    validate = validate.drop(columns=['rawcensustractandblock', 'censustractandblock'])
+    test = test.drop(columns=['rawcensustractandblock', 'censustractandblock'])
+
+    dist_columns = [x for x in train.columns if 'dist' in x]
+    for dist in dist_columns:
+        train[f'hypotenuse_{dist}'] = (train.elevation ** 2 + train[dist] ** 2) ** (1/2)
+        validate[f'hypotenuse_{dist}'] = (validate.elevation ** 2 + validate[dist] ** 2) ** (1/2)
+        test[f'hypotenuse_{dist}'] = (test.elevation ** 2 + test[dist] ** 2) ** (1/2)
+    for col in train.columns:
+        if 'hypotenuse' not in col and 'dist' in col:
+            train = train.drop(columns=col)
+            validate = validate.drop(columns=col)
+            test = test.drop(columns=col)
+    """
+    scale = train.drop(columns=['parcelid', 'rawcensustractandblock', 'censustractandblock', 'transactiondate'])
+    los_angeles = scale[scale.county=='los_angeles']
+    orange_county = scale[scale.county=='orange_county']
+    ventura = scale[scale.county=='ventura']
+
+    scaler_ventura = MinMaxScaler()
+    scaler_ventura.fit(ventura.drop(columns='county'))
+
+    scaler_los_angeles = MinMaxScaler()
+    scaler_los_angeles.fit(los_angeles.drop(columns='county'))
+
+    scaler_orange_county = MinMaxScaler()
+    scaler_orange_county.fit(orange_county.drop(columns='county'))
+
+    ventura_scaled= pd.DataFrame(scaler_ventura.transform(ventura.drop(columns='county')),columns = ventura.drop(columns='county').columns)
+    los_angeles_scaled = pd.DataFrame(scaler_los_angeles.transform(los_angeles.drop(columns='county')),columns = los_angeles.drop(columns='county').columns)
+    orange_county_scaled = pd.DataFrame(scaler_orange_county.transform(orange_county.drop(columns='county')),columns = orange_county.drop(columns='county').columns)
+
+    ventura_dist = ['dist_simi', 'dist_ojai', 'dist_eleanor',
+                    'dist_ventura', 'dist_channel_islands']
+
+    for col in ventura_scaled.columns:
+        if 'dist' in col and 'hypotenuse' not in col:
+            ventura_scaled = ventura_scaled.drop(columns=col)
+
+    oc_dist = ['dist_balboa_island', 'dist_laguna_beach',
+               'dist_seal_beach']
+
+    for col in orange_county_scaled.columns:
+        if 'dist' in col and 'hypotenuse' not in col:
+            orange_county_scaled = orange_county_scaled.drop(columns=col)
+
+    la_dist = ['dist_from_la', 'dist_from_long_beach',
+                 'dist_santa_monica', 'dist_from_malibu',
+                 'dist_from_bel_air']
+
+    for col in los_angeles_scaled.columns:
+        if 'dist' in col and 'hypotenuse' not in col:
+            los_angeles_scaled = los_angeles_scaled.drop(columns=col)
+    
+    for col in orange_county_scaled.columns:
+        if col[len('hypotenuse_'):] in la_dist or col[len('hypotenuse_d'):] in ventura_dist:
+            orange_county_scaled=orange_county_scaled.drop(columns=col)
+    
+    for col in los_angeles_scaled.columns:
+        if col[len('hypotenuse_'):] in oc_dist or col[len('hypotenuse_'):] in ventura_dist:
+            los_angeles_scaled=los_angeles_scaled.drop(columns=col)
+
+    for col in ventura_scaled.columns:
+        if col[len('hypotenuse_'):] in oc_dist or col[len('hypotenuse_'):] in la_dist:
+            ventura_scaled=ventura_scaled.drop(columns=col)
+    """
+    scaler = MinMaxScaler()
+    scaled_train, scaled_validate, scaled_test, scaler = prepare.fit_and_scale(scaler, train, validate, test)
+    #scaled_los_angeles_train, scaled_los_angeles_validate, scaled_los_angeles_test = prepare.fit_and_scale(scaler, )
+
+
+    #scaled_train = scaled_train.drop(columns=['parcelid', 'index', 'transactiondate'])
+    scaled_validate = scaled_validate.drop(columns=['transactiondate'])
+    #scaled_test = scaled_test.drop(columns=['parcelid', 'index', 'transactiondate'])
+
+
+    scaled_validate = scaled_validate.loc[:,~scaled_validate.columns.duplicated()].copy()
+    scaled_test = scaled_test.loc[:, ~scaled_test.columns.duplicated()].copy()
+
+
+    return train, validate, test, scaled_train, scaled_validate, scaled_test, scaler
+
+def latitude_logerror(train):
+
+    x = train[['latitude', 'logerror']]
+
+    kmeans = KMeans(n_clusters=3)
+    kmeans.fit(x)
+    x['latitude_logerror_cluster'] = kmeans.predict(x)
+
+    sns.scatterplot(x=train.latitude, y=train.logerror, hue=x.latitude_logerror_cluster)
+    plt.axvline(33.95)
+    plt.axvline(34.35)
+
+    bins=[33, 33.95, 34.35, 35]
+    x['lat_logerror'] = pd.cut(train.latitude,bins, 
+                            include_lowest=False,
+                            labels=['south_moderate_log', 'middle_high_log', 'north_high_log'])
+    return x.lat_logerror
+
+def longitude_logerror(train):
+    x = train[['longitude', 'logerror']]
+
+    kmeans = KMeans(n_clusters=3)
+    kmeans.fit(x)
+    x['longitude_logerror_cluster'] = kmeans.predict(x)
+
+    sns.scatterplot(x=train.longitude, y=train.logerror, hue=x.longitude_logerror_cluster)
+    plt.axvline(-118.125)
+    plt.axvline(-118.625)
+
+    bins=[-120, -118.625, -118.125, -117]
+    x['lon_buckets'] = pd.cut(train.longitude,bins, 
+                            include_lowest=False,
+                            labels=['west_low_log', 'middle_high_log', 'east_high_log'])
+    return x.lon_buckets
+
+
+def elevation_logerror(train):
+    x = train[['elevation', 'logerror']]
+
+    kmeans = KMeans(n_clusters=4)
+    kmeans.fit(x)
+    x['log_elevation_cluster'] = kmeans.predict(x)
+
+    sns.scatterplot(x=train.elevation, y=train.logerror, hue=x.log_elevation_cluster)
+    plt.axvline(400)
+    plt.axvline(700)
+    plt.axvline(900)
+
+
+    bins=[-50, 400, 700, 900, 2000]
+    x['elevation_buckets'] = pd.cut(train.elevation,bins, 
+                            include_lowest=True,
+                            labels=['low_elevation_high_log', 'middle_elevation_low_log', 'middle_elevation_high_log', 'high_elevation_high_log'])
+    return x.elevation_buckets
+
+
 

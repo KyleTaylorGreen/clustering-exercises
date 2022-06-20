@@ -6,10 +6,6 @@ from scipy import stats
 import matplotlib.pyplot as plt
 
 
-
-
-    
-
 def visualize_scaled_data(train, scaled_train):
 
     plt.figure(figsize=(13, 6))
@@ -22,14 +18,26 @@ def visualize_scaled_data(train, scaled_train):
 
 def fit_and_scale(scaler, train, validate, test):
     # only scales float columns
-    floats = train.select_dtypes(include='float64').columns
+    orig = train.select_dtypes(include=np.number).columns
+    floats = []
+    id_logerror = ['logerror', 'parcelid']
+
+    for col in orig:
+        #print(col)
+        if col not in id_logerror:
+            floats.append(col)
+    
 
     # fits scaler to training data only, then transforms 
     # train, validate & test
     scaler.fit(train[floats])
-    scaled_train = pd.DataFrame(data=scaler.transform(train[floats]), columns=floats)
+    scaled_train = pd.DataFrame(data=scaler.transform(train[floats]), columns=floats,)
     scaled_validate = pd.DataFrame(data=scaler.transform(validate[floats]), columns=floats)
     scaled_test = pd.DataFrame(data=scaler.transform(test[floats]), columns=floats)
+
+    scaled_train = pd.concat([scaled_train.reset_index(), train[id_logerror].reset_index()], axis=1)
+    scaled_validate = pd.concat([scaled_validate.reset_index(), validate.reset_index()], axis=1)
+    scaled_test = pd.concat([scaled_test.reset_index(), test[id_logerror].reset_index()], axis=1)
 
     return scaled_train, scaled_validate, scaled_test, scaler
 
